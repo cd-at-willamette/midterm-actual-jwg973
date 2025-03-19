@@ -1,0 +1,240 @@
+---
+title: "Characterizing Automobiles"
+author: "Jon Garrow"
+date: "03/17/2025"
+
+format: 
+  html:  
+    theme:
+        light: flatly
+        dark: darkly
+    mainfont: monospace
+    highlight-style: github
+    title-block-banner: true
+    embed-resources: true
+
+---
+
+# Setup
+
+- Setup
+
+```{r libs}
+sh <- suppressPackageStartupMessages
+sh(library(tidyverse))
+sh(library(caret))
+sh(library(fastDummies))
+sh(library(class))
+sh(library(ISLR)) # for the "Auto" dataframe
+```
+
+# Dataframe
+
+- We use the `Auto` dataframe.
+
+```{r df}
+head(Auto)
+auto1 <- Auto
+head(auto1)
+```
+
+- It has the following variable names, which describe various attributes of automobiles.
+
+```{r df2}
+names(auto1)
+```
+
+# Multiple Regression
+
+- Run a linear regression model with `mpg` as the dependent variable and `horsepower` and `year` as features (variables).
+- Compute and comment on the RMSE.
+
+```{r regression}
+# adding natural log of mpg and horsepower variables, to check if the models perform better
+auto1 <- auto1 %>% 
+  mutate(
+    log_mpg = log(mpg),
+    log_horsepower = log(horsepower)
+  )
+# log mpg, no interaction of horsepower and year
+m1 <- train(log_mpg ~ horsepower + year,
+  data = auto1,
+  method = "lm",
+  trControl = trainControl(method = "repeatedcv", number = 5, repeats = 3)
+)
+# log mpg, interaction of horsepower and year
+m2 <- train(log_mpg ~ horsepower * year,
+    data = auto1,
+    method = "lm",
+    trControl = trainControl(method = "repeatedcv", number = 5, repeats = 3)
+    )
+# unaltered mpg, no interaction of horsepower and year
+m3 <- train(mpg ~ horsepower + year,
+    data = auto1,
+    method = "lm",
+    trControl = trainControl(method = "repeatedcv", number = 5, repeats = 3)
+    )
+# unaltered mpg, interaction of horsepower and year
+m4 <- train(mpg ~ horsepower * year,
+    data = auto1,
+    method = "lm",
+    trControl = trainControl(method = "repeatedcv", number = 5, repeats = 3)
+)
+# log mpg, log horsepower, no interaction of hp and year
+m5 <- train(log_mpg ~ log_horsepower + year,
+  data = auto1,
+  method = "lm",
+  trControl = trainControl(method = "repeatedcv", number = 5, repeats = 3)
+)
+# log mpg, log horsepower, interaction of hp and year
+m6 <- train(log_mpg ~ log_horsepower * year,
+  data = auto1,
+  method = "lm",
+  trControl = trainControl(method = "repeatedcv", number = 5, repeats = 3)
+)
+# create function to get RMSE from multiple models
+get_rmse <- function(m) {
+    pred <- predict(m, newdata = auto1)
+    sqrt(mean((auto1$mpg - pred)^2))
+}
+# print RMSE values
+unlist(lapply(list(m1, m2, m3, m4, m5, m6), get_rmse))
+
+```
+
+> <span style="color:red;font-weight:bold">TODO</span>: Looking at the RMSEs, using the natural log of mpg is clearly not good for this modeling. M4 performed the best here, with the  unaltered mpg and an interaction between year and horsepower. This makes intuitive sense to me, as fuel efficiency (mpg) has gradually improved over time even as it is impacted by horsepower.
+
+# Feature Engineering
+
+- Create 10 features based on the `name` column.
+- Remove all rows with a missing value.
+- Ensure only `mpg` and the engineered features remain.
+- Compute and comment on the RMSE.
+
+```{r features}
+# engineer 10 features using only the name column
+auto1 <- auto1 %>% mutate(
+    american_boats = if_else(origin == 1 & str_detect(name, "marquis|impala|omega|monaco|country|cruiser|custom|royal|brougham|ltd|mustang"), TRUE, FALSE),
+    american_trucks_wagons = if_else(origin == 1 & str_detect(name, "f250|1200d|c20|d200|v8|(sw)|(st)"), TRUE, FALSE),
+    american_makes = str_detect(name, "amc|oldsmobile|cadillac|buick|ford|ihc|chevy|chevrolet|dodge|plymouth|pontiac|mercury"),
+    american_smol = if_else(origin == 1 & str_detect(name, "mouth champ|horizon miser|ciera (diesel)|fiesta|lynx|charger|colt|escort|cavalier 2-door|phoenix|rampage|chevette|omni|opel isuzu|reliant|citation|vega|skylark"), TRUE, FALSE),
+    euro_boats_wagons = if_else(origin == 2 & str_detect(name, "504|604|280|264|145|144|100ls|5000|(sw)|(st)"), TRUE, FALSE),
+    euro_makes = str_detect(name, "fiat|peugeot|mercedes|audi|volkswagen|vokswagen|opel|triumph|vw"),
+    euro_smol = if_else(origin == 2 & str_detect(name, "peugeot 304|124b|240d|rabbit|505s|opel 1900|fiat 131|fox|x1.9|volvo diesel|scirocco|jetta|tr7 coupe|audi 5000s|strada|dasher|audi 4000"), TRUE, FALSE),
+    japan_boats = if_else(origin == 3 & str_detect(name, "rx3|rx2|mark|carina|liftback|rx-4|610|810|(sw)"), TRUE, FALSE),
+    japan_smol = if_else(origin == 3 & str_detect(name, "glc|210|starlet|starlet|tercel|310|510|hatchback|mpg|civic|corolla|prelude|200sx|accord"), TRUE, FALSE),
+    japan_makes = str_detect(name, "nissan|datsun|toyota|mazda|subaru|honda")
+    )
+head(auto1)
+# remove all other variables
+auto_feats <- auto1 %>% select(-cylinders, -displacement, -horsepower, -weight, -acceleration, -year, -origin, -name, -log_mpg, -log_horsepower)
+head(auto_feats)
+# remove any row with an NA
+clean_autos <- na.omit(auto_feats)
+summary(clean_autos)
+
+# recreate model with this new dataframe
+sqrt(mean((clean_autos$mpg - predict(lm(formula = mpg ~ ., data = clean_autos), newdata = clean_autos))^2))
+```
+
+> <span style="color:red;font-weight:bold">TODO</span>: While these engineered variables got a reasonably low RMSE of 4.85, we saw better results (3.88) above with much simpler inputs looking at year and horsepower. All regions in this dataset, in this period, produced high mpg cars, although the United States produced uniquely heavy cars with very low mpg.
+
+# Classification
+
+- Use either of $K$-NN or Naive Bayes to predict whether an automobile is a `chevrolet` or a `honda`.
+- Explain your choice of technique.
+- Report on your Kappa value.
+
+```{r classification}
+auto2 <- Auto
+
+auto2 <- auto2 %>% mutate(
+ chevrolet_honda = case_when(
+      str_detect(name, "chevrolet|chevy") ~ "chevrolet",
+      str_detect(name, "honda") ~ "honda",
+      TRUE ~ NA_character_
+    )
+)
+head(auto2)
+clean_auto2 <- na.omit(auto2)
+summary(clean_auto2)
+
+# KNN model 
+control = trainControl(method = "cv", number = 5)
+split <- createDataPartition(clean_auto2$chevrolet_honda, p = 0.8, list = FALSE)
+train_knn <- clean_auto2[split, ]
+test_knn <- clean_auto2[-split, ]
+
+fit_knn = train(chevrolet_honda ~ .,
+                data = train_knn, 
+                method = "knn",
+                tuneLength = 15,
+                metric = "Kappa",
+                trControl = control)
+
+confusionMatrix(predict(fit_knn, test_knn),factor(test_knn$chevrolet_honda))
+```
+
+> <span style="color:red;font-weight:bold">TODO</span>: I chose to use a KNN model since I don't know enough to assume independence between features, there don't appear to be strong outliers, and the data is lower-dimensional. I created a feature based on the name variable to determine likely Chevy or Honda. Based on that feature, the model performed relatively well given the small sample size. The precision is 100%, meaning all positive predictions were correct; the negative predictions are too high, however, at 67%. But the balanced accuracy is 94%, which I will assume is high enough for this use case. The Kappa value of .62 suggests a good level of accuracy beyond chance.
+
+# Binary Classification
+
+- Predict whether a car is a `honda`.
+- Use model weights.
+- Display and comment on an ROC curve.
+
+```{r binary classification}
+auto3 <- Auto
+auto3<- auto3 %>% mutate(
+    honda = str_detect(name, "honda")
+)
+auto3 %>% filter(honda == TRUE) %>% head()
+
+counts <- table(auto3$honda)
+count_y <- (counts["TRUE"])
+count_n <- counts["FALSE"]
+weigh_y <- max(count_y,count_n)/count_y
+weigh_n <- max(count_y, count_n)/count_n
+c(count_y, count_n, weigh_y, weigh_n)
+weights <- ifelse(auto3$honda, weigh_y, weigh_n)
+
+m7 <- glm(honda ~ ., data = auto3, family = binomial, weights = weights)
+
+summary(m7)
+
+pred_probs <- predict(m7, newdata = auto3, type = "response")
+
+library(pROC)
+roc_curve <- roc(auto3$honda, pred_probs)
+plot(roc_curve, main = "ROC Curve for Honda Prediction")
+auc(roc_curve)
+```
+
+> <span style="color:red;font-weight:bold">TODO</span>: I created a new feature for honda based on the name variable, then calculated weights based on the number of hondas in the dataset. The AUC value of 1 is excellent but indicative of overfitting. It is possible that the small sample size contributed to this issue.
+
+# Ethics
+
+- Based on your analysis, comment on the [Clean Air Act of 1970 and Ammendments of 1977](https://www.epa.gov/clean-air-act-overview/evolution-clean-air-act)
+- Discuss the civic reposibilities of data scientists for:
+    - Big Data and Human-Centered Computing
+    - Democratic Institutions
+    - Climate Change
+- Provide at least one statistical measure for each, such as a RMSE, Kappa value, or ROC curve.
+
+> <span style="color:red;font-weight:bold">TODO</span>: Big Data and Human-Centered Computing
+
+```{r big data}
+# As discussed, will skip as I have not taken 504
+```
+
+> <span style="color:red;font-weight:bold">TODO</span>: Democratic Institutions
+
+```{r democracy}
+# Your code here
+```
+
+> <span style="color:red;font-weight:bold">TODO</span>: Climate Change
+
+```{r climate}
+# Your code here
+```
